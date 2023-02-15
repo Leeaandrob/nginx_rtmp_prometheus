@@ -37,20 +37,20 @@ func main() {
 
 // StatsServer is a mock server to expose dummy NGINX-RTMP stats
 func StatsServer(w http.ResponseWriter, r *http.Request) {
-	xmlFile, err := os.Open("tests/stats.xml")
+	jsonFile, err := os.Open("tests/stats.json")
 	if err != nil {
 		fmt.Printf("Error %s", err)
 		os.Exit(1)
 	}
 
-	defer xmlFile.Close()
+	defer jsonFile.Close()
 
-	data, err := ioutil.ReadAll(xmlFile)
+	data, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
 		os.Exit(1)
 	}
 
-	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Content-Type", "application/json")
 	if _, err := w.Write(data); err != nil {
 		log.Fatal(err)
 	}

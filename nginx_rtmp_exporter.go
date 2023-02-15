@@ -23,6 +23,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -34,7 +35,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/antchfx/xmlquery"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -58,6 +58,123 @@ func newStreamMetric(metricName string, docString string, varLabels []string, co
 }
 
 type metrics map[string]*prometheus.Desc
+type MediaInfo struct {
+	MediaType     string  `json:"media_type"`
+	Bitrate       int64   `json:"bitrate"`
+	CodecId       int64   `json:"codec_id"`
+	ExtraData     string  `json:"extra_data"`
+	Width         int64   `json:"width"`
+	Height        int64   `json:"height"`
+	FrameRate     float64 `json:"frame_rate"`
+	CeaCaptions   bool    `json:"cea_captions"`
+	Channels      int64   `json:"channels"`
+	BitsPerSample int64   `json:"bits_per_sample"`
+	SampleRate    int64   `json:"sample_rate"`
+}
+type Upstream struct {
+	ID              string  `json:"id"`
+	RemoteAddr      string  `json:"remote_addr"`
+	LocalAddr       string  `json:"local_addr"`
+	Connection      int64   `json:"connection"`
+	Required        bool    `json:"required"`
+	ResumeFrom      string  `json:"resume_from"`
+	SentBytes       float64 `json:"sent_bytes"`
+	Position        int64   `json:"position"`
+	AckedFrames     int64   `json:"acked_frames"`
+	AckedBytes      float64 `json:"acked_bytes"`
+	AutoAckedFrames int64   `json:"auto_acked_frames"`
+}
+type Upstreams []Upstream
+type Video struct {
+	KMPOutId      string    `json:"kmp_out_id"`
+	InputId       string    `json:"input_id"`
+	ChannelId     string    `json:"channel_id"`
+	TrackId       string    `json:"track_id"`
+	MemLeft       float64   `json:"mem_left"`
+	MemLimit      float64   `json:"mem_limit"`
+	LastTimestamp int64     `json:"last_timestamp"`
+	LastCreated   int64     `json:"last_created"`
+	SentFrames    int64     `json:"sent_frames"`
+	SentKeyFrames int64     `json:"sent_key_frames"`
+	Written       int64     `json:"written"`
+	Bitrate       int64     `json:"bitrate"`
+	FrameRate     float64   `json:"frame_rate"`
+	MediaInfo     MediaInfo `json:"media_info"`
+	Upstreams     Upstreams `json:"upstreams"`
+}
+type Audio struct {
+	KMPOutId      string    `json:"kmp_out_id"`
+	InputId       string    `json:"input_id"`
+	ChannelId     string    `json:"channel_id"`
+	TrackId       string    `json:"track_id"`
+	MemLeft       float64   `json:"mem_left"`
+	MemLimit      float64   `json:"mem_limit"`
+	LastTimestamp int64     `json:"last_timestamp"`
+	LastCreated   int64     `json:"last_created"`
+	SentFrames    int64     `json:"sent_frames"`
+	SentKeyFrames int64     `json:"sent_key_frames"`
+	Written       int64     `json:"written"`
+	Bitrate       int64     `json:"bitrate"`
+	FrameRate     float64   `json:"frame_rate"`
+	MediaInfo     MediaInfo `json:"media_info"`
+	Upstreams     Upstreams `json:"upstreams"`
+}
+type Tracks struct {
+	Video Video `json:"video"`
+	Audio Audio `json:"audio"`
+}
+type Stream struct {
+	Name         string  `json:"name"`
+	Args         string  `json:"args"`
+	Type         string  `json:"type"`
+	BWIn         float64 `json:"bw_in"`
+	BytesIn      float64 `json:"bytes_in"`
+	BWInAudio    float64 `json:"bw_in_audio"`
+	BytesInAudio float64 `json:"bytes_in_audio"`
+	BWInVideo    float64 `json:"bw_in_video"`
+	BytesInVideo float64 `json:"bytes_in_video"`
+	BWOut        float64 `json:"bw_out"`
+	BytesOut     float64 `json:"bytes_out"`
+	Uptime       int64   `json:"uptime"`
+	Tracks       Tracks  `json:"tracks"`
+}
+type Streams []Stream
+type Session struct {
+	FlashVer   string  `json:"flashver"`
+	SWFUrl     string  `json:"swfurl"`
+	TCUrl      string  `json:"tc_url"`
+	PageUrl    string  `json:"page_url"`
+	Type3ExtTs string  `json:"type3_ext_ts"`
+	RemoteAddr string  `json:"remote_addr"`
+	Uptime     int64   `json:"uptime"`
+	Connection int64   `json:"connection"`
+	Streams    Streams `json:"streams"`
+}
+type Sessions []Session
+type Application struct {
+	Name     string   `json:"name"`
+	Sessions Sessions `json:"sessions"`
+}
+type Applications []Application
+type Server struct {
+	Applications Applications `json:"applications"`
+}
+type Servers []Server
+type Metric struct {
+	Version      string  `json:"version"`
+	NginxVersion string  `json:"nginx_version"`
+	RTMPVersion  string  `json:"rtmp_version"`
+	Compiler     string  `json:"compiler"`
+	Built        string  `json:"built"`
+	PID          int     `json:"pid"`
+	Uptime       int64   `json:"uptime"`
+	NAccepted    float64 `json:"naccepted"`
+	BWIn         float64 `json:"bw_in"`
+	BytesIn      float64 `json:"bytes_in"`
+	BWOut        float64 `json:"bw_out"`
+	BytesOut     float64 `json:"bytes_out"`
+	Severs       Servers `json:"servers"`
+}
 
 var (
 	serverMetrics = metrics{
@@ -96,7 +213,7 @@ type ServerInfo struct {
 	BytesOut    float64
 	BandwidthIn float64
 	BandwidhOut float64
-	Uptime      float64
+	Uptime      int64
 }
 
 // StreamInfo characteristics of a stream
@@ -106,61 +223,39 @@ type StreamInfo struct {
 	BytesOut    float64
 	BandwidthIn float64
 	BandwidhOut float64
-	Uptime      float64
+	Uptime      int64
 }
 
 // NewServerInfo builds a ServerInfo struct from string values
-func NewServerInfo(bytesIn, bytesOut, bandwidthIn, bandwidthOut, uptime string) ServerInfo {
-	var bytesInNum, bytesOutNum, bandwidthInNum, bandwidthOutNum, uptimeNum float64
-	if n, err := strconv.ParseFloat(bytesIn, 64); err == nil {
-		bytesInNum = n
-	}
-	if n, err := strconv.ParseFloat(bytesOut, 64); err == nil {
-		bytesOutNum = n
-	}
-	if n, err := strconv.ParseFloat(bandwidthIn, 64); err == nil {
-		bandwidthInNum = n / 1048576 // bandwidth is in bits
-	}
-	if n, err := strconv.ParseFloat(bandwidthOut, 64); err == nil {
-		bandwidthOutNum = n / 1048576 // bandwidth is in bits
-	}
-	if n, err := strconv.ParseFloat(uptime, 64); err == nil {
-		uptimeNum = n
-	}
+func NewServerInfo(bytesIn, bytesOut, bandwidthIn, bandwidthOut float64, uptime int64) ServerInfo {
+	var bytesInNum, bytesOutNum, bandwidthInNum, bandwidthOutNum float64
+	bytesInNum = bytesIn
+	bytesOutNum = bytesOut
+	bandwidthInNum = bandwidthIn / 1048576   // bandwidth is in bits
+	bandwidthOutNum = bandwidthOut / 1048576 // bandwidth is in bits
 	return ServerInfo{
 		BytesIn:     bytesInNum,
 		BytesOut:    bytesOutNum,
 		BandwidthIn: bandwidthInNum,
 		BandwidhOut: bandwidthOutNum,
-		Uptime:      uptimeNum,
+		Uptime:      uptime,
 	}
 }
 
 // NewStreamInfo builds a StreamInfo struct from string values
-func NewStreamInfo(name, bytesIn, bytesOut, bandwidthIn, bandwidthOut, uptime string) StreamInfo {
-	var bytesInNum, bytesOutNum, bandwidthInNum, bandwidthOutNum, uptimeNum float64
-	if n, err := strconv.ParseFloat(bytesIn, 64); err == nil {
-		bytesInNum = n
-	}
-	if n, err := strconv.ParseFloat(bytesOut, 64); err == nil {
-		bytesOutNum = n
-	}
-	if n, err := strconv.ParseFloat(bandwidthIn, 64); err == nil {
-		bandwidthInNum = n / 1048576 // bandwidth is in bits
-	}
-	if n, err := strconv.ParseFloat(bandwidthOut, 64); err == nil {
-		bandwidthOutNum = n / 1048576 // bandwidth is in bits
-	}
-	if n, err := strconv.ParseFloat(uptime, 64); err == nil {
-		uptimeNum = n / 1000 // it is in miliseconds
-	}
+func NewStreamInfo(name string, bytesIn, bytesOut, bandwidthIn, bandwidthOut float64, uptime int64) StreamInfo {
+	var bytesInNum, bytesOutNum, bandwidthInNum, bandwidthOutNum float64
+	bytesInNum = bytesIn
+	bytesOutNum = bytesOut
+	bandwidthInNum = bandwidthIn / 1048576   // bandwidth is in bits
+	bandwidthOutNum = bandwidthOut / 1048576 // bandwidth is in bits
 	return StreamInfo{
 		Name:        name,
 		BytesIn:     bytesInNum,
 		BytesOut:    bytesOutNum,
 		BandwidthIn: bandwidthInNum,
 		BandwidhOut: bandwidthOutNum,
-		Uptime:      uptimeNum,
+		Uptime:      uptime,
 	}
 }
 
@@ -202,51 +297,51 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.scrape(ch)
 }
 
-func parseServerStats(doc *xmlquery.Node) (ServerInfo, error) {
-	data := xmlquery.FindOne(doc, "//rtmp")
-
-	bytesIn := data.SelectElement("bytes_in").InnerText()
-	bytesOut := data.SelectElement("bytes_out").InnerText()
-	receiveBytes := data.SelectElement("bw_in").InnerText()
-	transmitBytes := data.SelectElement("bw_out").InnerText()
-	uptime := data.SelectElement("uptime").InnerText()
+func parseServerStats(doc Metric) (ServerInfo, error) {
+	bytesIn := doc.BytesIn
+	bytesOut := doc.BytesOut
+	receiveBytes := doc.BWIn
+	transmitBytes := doc.BWOut
+	uptime := doc.Uptime
 
 	return NewServerInfo(bytesIn, bytesOut, receiveBytes, transmitBytes, uptime), nil
 }
 
-func parseStreamsStats(doc *xmlquery.Node, streamNameNormalizer *regexp.Regexp) ([]StreamInfo, error) {
+func parseStreamsStats(data Metric, streamNameNormalizer *regexp.Regexp) ([]StreamInfo, error) {
 	streams := make([]StreamInfo, 0)
-	data := xmlquery.Find(doc, "//stream")
-
-	for _, stream := range data {
-		name := streamNameNormalizer.FindString(stream.SelectElement("name").InnerText())
-		// adding the app name here to ensure that the metrics are unique
-		app := ""
-		if stream.Parent != nil && stream.Parent.Parent != nil {
-			appName := stream.Parent.Parent.SelectElement("name")
-			if appName != nil {
-				app = appName.InnerText() + "-" // dash separator between app and stream names
+	for _, session := range data.Severs[0].Applications[0].Sessions {
+		for _, stream := range session.Streams {
+			name := streamNameNormalizer.FindString(stream.Name)
+			// adding the app name here to ensure that the metrics are unique
+			app := ""
+			appName := stream.Name
+			if len(appName) > 0 {
+				app = appName + "-" // dash separator between app and stream names
 			}
+			bytesIn := stream.BytesIn
+			bytesOut := stream.BytesOut
+			receiveBytes := stream.BWIn
+			transmitBytes := stream.BytesOut
+			uptime := stream.Uptime
+			streams = append(streams, NewStreamInfo(app+name, bytesIn, bytesOut, receiveBytes, transmitBytes, uptime))
 		}
-		bytesIn := stream.SelectElement("bytes_in").InnerText()
-		bytesOut := stream.SelectElement("bytes_out").InnerText()
-		receiveBytes := stream.SelectElement("bw_in").InnerText()
-		transmitBytes := stream.SelectElement("bw_out").InnerText()
-		uptime := stream.SelectElement("time").InnerText()
-		streams = append(streams, NewStreamInfo(app+name, bytesIn, bytesOut, receiveBytes, transmitBytes, uptime))
 	}
 	return streams, nil
 }
 
 func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
+	var doc Metric
 	data, err := e.fetch()
 	if err != nil {
 		level.Error(e.logger).Log("msg", "Can't scrape NGINX-RTMP", "err", err)
 		return
 	}
 	defer data.Close()
-
-	doc, err := xmlquery.Parse(data)
+	body, err := ioutil.ReadAll(data)
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal([]byte(body), &doc)
 	if err != nil {
 		return
 	}
@@ -260,7 +355,7 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(e.serverMetrics["bytesOut"], prometheus.CounterValue, server.BytesOut)
 	ch <- prometheus.MustNewConstMetric(e.serverMetrics["bandwidthIn"], prometheus.GaugeValue, server.BandwidthIn)
 	ch <- prometheus.MustNewConstMetric(e.serverMetrics["bandwidthOut"], prometheus.GaugeValue, server.BandwidhOut)
-	ch <- prometheus.MustNewConstMetric(e.serverMetrics["uptime"], prometheus.CounterValue, server.Uptime)
+	ch <- prometheus.MustNewConstMetric(e.serverMetrics["uptime"], prometheus.CounterValue, float64(server.Uptime))
 
 	streams, err := parseStreamsStats(doc, e.streamNameNormalizer)
 	if err != nil {
@@ -273,7 +368,7 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(e.streamMetrics["bytesOut"], prometheus.CounterValue, stream.BytesOut, stream.Name)
 		ch <- prometheus.MustNewConstMetric(e.streamMetrics["bandwidthIn"], prometheus.GaugeValue, stream.BandwidthIn, stream.Name)
 		ch <- prometheus.MustNewConstMetric(e.streamMetrics["bandwidthOut"], prometheus.GaugeValue, stream.BandwidhOut, stream.Name)
-		ch <- prometheus.MustNewConstMetric(e.streamMetrics["uptime"], prometheus.CounterValue, stream.Uptime, stream.Name)
+		ch <- prometheus.MustNewConstMetric(e.streamMetrics["uptime"], prometheus.CounterValue, float64(stream.Uptime), stream.Name)
 	}
 
 	ch <- prometheus.MustNewConstMetric(e.serverMetrics["currentStreams"], prometheus.GaugeValue, float64(len(streams)))
@@ -294,7 +389,7 @@ func main() {
 	var (
 		listenAddress   = kingpin.Flag("web.listen-address", "Address to listen on for web interface and telemetry.").Default(":9728").String()
 		metricsPath     = kingpin.Flag("web.telemetry-path", "Path under which to expose metrics.").Default("/metrics").String()
-		scrapeURI       = kingpin.Flag("nginxrtmp.scrape-uri", "URI on which to scrape NGINX-RTMP stats.").Default("http://localhost:8080/stats").String()
+		scrapeURI       = kingpin.Flag("nginxrtmp.scrape-uri", "URI on which to scrape NGINX-RTMP stats.").Default("http://localhost:8001/api/rtmp_kmp/").String()
 		timeout         = kingpin.Flag("nginxrtmp.timeout", "Timeout for trying to get stats from NGINX-RTMP.").Default("5s").Duration()
 		pidFile         = kingpin.Flag("nginxrtmp.pid-file", "Optional path to a file containing the NGINX-RTMP PID for additional metrics.").Default("").String()
 		regexStreamName = kingpin.Flag("nginxrtmp.regex-stream-name", "Regex to normalize stream name from NGINX-RTMP").Default(".*").String()
